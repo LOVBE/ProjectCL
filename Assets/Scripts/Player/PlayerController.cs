@@ -1,4 +1,5 @@
 using UnityEngine;
+using System;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
@@ -20,14 +21,35 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float sprintStaminaCostRate = 10f; // Tụt Thể lực khi chạy
     [SerializeField] private float staminaRecoveryRate = 5f;
 
+    [Header("Potion Effects")]
+    [SerializeField] private float silentStepDuration = 20f;
+    [SerializeField] private float heatResistDuration = 20f;
+
     private float currentStamina;
     private float currentOxygen;
+    private float silentStepTimer;
+    private float heatResistTimer;
     private CharacterController controller;
     private Vector3 velocity;
 
-    private void Start()
+    public float CurrentStamina => currentStamina;
+    public float CurrentOxygen => currentOxygen;
+    public float MaxStamina => maxStamina;
+    public float MaxOxygen => maxOxygen;
+    public bool HasSilentStepMode => silentStepTimer > 0f;
+    public bool HasHeatResistMode => heatResistTimer > 0f;
+
+    public Action<float, float> OnVitalsChanged;
+    public Action OnStatusEffectsChanged;
+
+    private void Awake()
     {
         controller = GetComponent<CharacterController>();
+        ResolveCameraReference();
+    }
+
+    private void Start()
+    {
         ResetVitals();
     }
 
@@ -35,10 +57,13 @@ public class PlayerController : MonoBehaviour
     {
         currentStamina = maxStamina;
         currentOxygen = maxOxygen;
+        NotifyVitalsChanged();
     }
 
     private void Update()
     {
+        UpdatePotionTimers();
+
         if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameManager.GameState.Exploration)
         {
             return; // Chỉ cho phép điều khiển khi đang Thám hiểm
@@ -51,17 +76,20 @@ public class PlayerController : MonoBehaviour
 
     private void HandleMovement()
     {
+        if (controller.isGrounded && velocity.y < 0)
+        {
+            velocity.y = -2f;
+        }
+
         float x = Input.GetAxis("Horizontal");
         float z = Input.GetAxis("Vertical");
 
         bool isSprinting = Input.GetKey(KeyCode.LeftShift) && currentStamina > 0;
         float currentSpeed = isSprinting ? sprintSpeed : walkSpeed;
 
-        Vector3 move = transform.right * x + transform.forward * z;
-        controller.Move(move * currentSpeed * Time.deltaTime);
+        Vector3 moveDir = transform.right * x + transform.forward * z;
 
-        // Xử lý Thể lực khi chạy
-        if (isSprinting && move.magnitude > 0)
+        if (isSprinting && moveDir.magnitude > 0)
         {
             currentStamina -= sprintStaminaCostRate * Time.deltaTime;
         }
@@ -70,17 +98,28 @@ public class PlayerController : MonoBehaviour
             currentStamina += staminaRecoveryRate * Time.deltaTime;
         }
 
-        // Apply Rơi/Trọng lực
         velocity.y += gravity * Time.deltaTime;
-        controller.Move(velocity * Time.deltaTime);
-        if (controller.isGrounded && velocity.y < 0)
-        {
-            velocity.y = -2f;
-        }
+        
+        Vector3 finalMove = moveDir * currentSpeed;
+        finalMove.y = velocity.y;
+        
+        controller.Move(finalMove * Time.deltaTime);
+
+        currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
+        NotifyVitalsChanged();
     }
 
     private void HandleMouseLook()
     {
+        if (playerCamera == null)
+        {
+            ResolveCameraReference();
+            if (playerCamera == null)
+            {
+                return;
+            }
+        }
+
         float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
         float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
 
@@ -94,6 +133,8 @@ public class PlayerController : MonoBehaviour
     private void HandleSurvivalVitals()
     {
         currentOxygen -= oxygenDepletionRate * Time.deltaTime;
+        currentOxygen = Mathf.Clamp(currentOxygen, 0f, maxOxygen);
+        NotifyVitalsChanged();
 
         if (currentOxygen <= 0)
         {
@@ -110,10 +151,87 @@ public class PlayerController : MonoBehaviour
     {
         // Khi bị quái vật húc trúng
         currentStamina -= staminaDamage;
+        currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
+        NotifyVitalsChanged();
+
         if(currentStamina <= 0)
         {
             GameManager.Instance?.OnPlayerFainted("Kiệt sức do bị tấn công");
             ResetVitals();
+        }
+    }
+
+    public bool ConsumePotion(ItemID potionID)
+    {
+        switch (potionID)
+        {
+            case ItemID.SilentStepPotion:
+                if (PlayerInventory.Instance == null || !PlayerInventory.Instance.RemoveItem(potionID))
+                {
+                    return false;
+                }
+
+                silentStepTimer = silentStepDuration;
+                OnStatusEffectsChanged?.Invoke();
+                return true;
+            case ItemID.HeatResistPotion:
+                if (PlayerInventory.Instance == null || !PlayerInventory.Instance.RemoveItem(potionID))
+                {
+                    return false;
+                }
+
+                heatResistTimer = heatResistDuration;
+                OnStatusEffectsChanged?.Invoke();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void UpdatePotionTimers()
+    {
+        bool statusChanged = false;
+
+        if (silentStepTimer > 0f)
+        {
+            silentStepTimer = Mathf.Max(0f, silentStepTimer - Time.deltaTime);
+            statusChanged = true;
+        }
+
+        if (heatResistTimer > 0f)
+        {
+            heatResistTimer = Mathf.Max(0f, heatResistTimer - Time.deltaTime);
+            statusChanged = true;
+        }
+
+        if (statusChanged)
+        {
+            OnStatusEffectsChanged?.Invoke();
+        }
+    }
+
+    private void NotifyVitalsChanged()
+    {
+        OnVitalsChanged?.Invoke(currentStamina, currentOxygen);
+    }
+
+    private void ResolveCameraReference()
+    {
+        if (playerCamera != null)
+        {
+            return;
+        }
+
+        Camera childCamera = GetComponentInChildren<Camera>();
+        if (childCamera != null)
+        {
+            playerCamera = childCamera.transform;
+            return;
+        }
+
+        if (Camera.main != null)
+        {
+            playerCamera = Camera.main.transform;
         }
     }
 }

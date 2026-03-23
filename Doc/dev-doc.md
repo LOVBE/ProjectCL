@@ -80,3 +80,15 @@ Mục tiêu của phiên bản MVP là nhanh chóng xây dựng và có thể ch
 - **Fake it till you make it (Dùng thông số thay vật lý hạt):** Ở MVP, KHÔNG yêu cầu đổ shader chất lỏng cho vạc nước, không cần mô phỏng mesh tác động hạt của cái chày. Hãy sử dụng Đổi màu (Color transition) hoặc các Effect Particle hệ thống có sẵn để demo cảm giác.
 - **Tunning Trực quan (Tools Support):** Dev phải public (Exposed / SerializeField) toàn bộ các tham số (Ví dụ: Các hệ số nhân khi chấm điểm nhiếp ảnh, các threshold Nhiệt độ đun sôi) ra màn hình Inspector ở Engine để Game Designer có thể tự điều chỉnh con số liên tục mà khôg cần phải nhờ Dev sửa hoặc Re-compile code liên tục.
 - **Modular Code:** Các cụm tính năng về Tiền Tệ, AI logic, Controller và System Score phải độc lập (Decoupled tối đa). Sử dụng Observer Pattern / Event System để truyền-nhận tín hiệu, đảm bảo khi Giai đoạn sau update thêm quái vật hay vật phẩm sẽ không làm đổ vỡ logic base.
+
+---
+
+## 📝 Quy Định Cập Nhật (Commits & Changelogs)
+**Yêu cầu bắt buộc đối với tất cả thành viên (Đội Dev & AI Assistant):**
+Mọi thay đổi về mã nguồn, cấu trúc thư mục, hoặc thiết lập UI/UX sau khi thực hiện xong đều phải được ghi nhận rõ ràng vào `history_commit.md` để cả đội nắm được tiến độ và không bị "đụng" code (conflict).
+
+**Format ghi commit/log:**
+* **[DD/MM/YYYY] - [Tên Component/Hệ thống] - Thêm mới/Chỉnh sửa**
+  - **Mô tả:** Đã code/sửa tính năng gì cụ thể.
+  - **File thay đổi:** Liệt kê các script hoặc prefab bị ảnh hưởng (vd: `GameManager.cs`, `PlayerInventory.cs`).
+  - **Lưu ý:** Ghi chú cách test thử hoặc các Inspector variable cần Game Designer chú ý tinh chỉnh.

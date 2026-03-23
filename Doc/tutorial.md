@@ -64,4 +64,3 @@ Mặc định khi clone về, nếu không tự động load Scene, bạn hãy l
     *   Trong `PlayerController` kéo `CameraRoot` vào ô cắm gán camera điều hướng.
 
 ---
-*Cảm ơn bạn đã tham gia cống hiến cho hành trình Astro-Alchemist! Mọi thắc mắc về logic Code hãy trực tiếp tham khảo file tài liệu `dev-doc.md` và `document.md`.*

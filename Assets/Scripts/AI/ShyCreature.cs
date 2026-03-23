@@ -15,6 +15,7 @@ public class ShyCreature : CreatureAI
 
     private float timer;
     private Transform playerTransform;
+    private PlayerController playerController;
 
     protected override void Awake()
     {
@@ -28,7 +29,11 @@ public class ShyCreature : CreatureAI
         
         // MVP: Tự động tìm Player
         PlayerController p = FindObjectOfType<PlayerController>();
-        if (p != null) playerTransform = p.transform;
+        if (p != null)
+        {
+            playerController = p;
+            playerTransform = p.transform;
+        }
     }
 
     private void Update()
@@ -72,7 +77,7 @@ public class ShyCreature : CreatureAI
         else if (distToPlayer <= detectionRadius && CurrentState != CreatureState.Flee)
         {
             // Kiểm tra xem người chơi có đang dùng Thuốc Bước Chân Êm không
-            bool hasSilentStepMode = false; // Tương lai tích hợp Inventory check effect
+            bool hasSilentStepMode = playerController != null && playerController.HasSilentStepMode;
             
             if (!hasSilentStepMode)
             {

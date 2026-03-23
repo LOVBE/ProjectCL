@@ -6,77 +6,118 @@ public class PlayerInteraction : MonoBehaviour
     [SerializeField] private float interactDistance = 3f;
     [SerializeField] private LayerMask interactableLayer;
     [SerializeField] private Transform playercamera;
+    [SerializeField] private Transform raycastOrigin; // Thêm vị trí gốc bắn tia (vd: Mắt của Player)
+    [SerializeField] private bool verboseRaycastLogging;
 
     private IInteractable currentHoveredItem;
+
+    private void Awake()
+    {
+        ResolveReferences();
+    }
 
     private void Update()
     {
         if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameManager.GameState.Exploration)
+        {
+            ClearHoveredItem();
             return;
+        }
 
         HandleCrosshairRaycast();
 
         if (Input.GetKeyDown(KeyCode.E))
         {
+            if (verboseRaycastLogging) Debug.Log("[Input] Đã ghi nhận người chơi BẤM PHÍM E.");
             TryInteract();
         }
     }
 
-    [SerializeField] private Transform raycastOrigin; // Thêm vị trí gốc bắn tia (vd: Mắt của Player)
+    [Header("Tuning nội bộ")]
+    [SerializeField] private float maxInteractDistance = 15f; // Khoảng cách tối đa tia tương tác (nên >= khoảng cách Camera)
 
     private void HandleCrosshairRaycast()
     {
-        Camera mainCam = playercamera.GetComponent<Camera>();
+        ResolveReferences();
+
+        Camera mainCam = playercamera != null ? playercamera.GetComponent<Camera>() : null;
         if (mainCam == null)
         {
-            Debug.LogError("[LỖI] Vật gắn vào ô PlayerCamera không phải là Camera! Lấy tạm Camera.main");
             mainCam = Camera.main;
         }
 
-        // 1. Tìm điểm giao cắt của Camera nhìn thứ 3 (Nhìn từ sau lưng)
+        if (mainCam == null)
+        {
+            if (verboseRaycastLogging) Debug.LogWarning("[Raycast] Không tìm thấy Camera nào!");
+            return;
+        }
+
+        // ======== BƯỚC 1: Tia nháp từ Camera TPS xuyên qua Crosshair ========
         Ray camRay = mainCam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        float camProbeDistance = 100f; // Bắn xa 100m để chắc chắn chạm được vật thể dù Camera ở rất xa
         Vector3 targetPoint;
         
-        // Bắn một tia nháp từ Camera để xem tâm nhìn đang rọi vào đâu (Đất, Tường, hay Hư không)
-        if (Physics.Raycast(camRay, out RaycastHit camHit, interactDistance * 2))
+        // RaycastAll để quét xuyên qua cơ thể Player
+        RaycastHit[] hits = Physics.RaycastAll(camRay, camProbeDistance);
+        bool foundHit = false;
+        RaycastHit bestHit = new RaycastHit();
+        float minDist = float.MaxValue;
+
+        foreach (RaycastHit h in hits)
         {
-            targetPoint = camHit.point;
+            if (h.collider.transform.root == transform.root) continue;
+            
+            if (h.distance < minDist)
+            {
+                minDist = h.distance;
+                bestHit = h;
+                foundHit = true;
+            }
+        }
+
+        if (foundHit)
+        {
+            targetPoint = bestHit.point;
+            if (verboseRaycastLogging) Debug.Log($"[Tia Nháp] Camera bắn trúng '{bestHit.collider.gameObject.name}' tại {targetPoint} (khoảng cách {minDist:F1}m)");
         }
         else
         {
-            targetPoint = camRay.origin + camRay.direction * (interactDistance * 2);
+            targetPoint = camRay.origin + camRay.direction * camProbeDistance;
+            if (verboseRaycastLogging) Debug.Log($"[Tia Nháp] Camera không trúng gì, đặt targetPoint ở xa {camProbeDistance}m");
         }
 
-        // 2. Tính toán tia bắn THỰC SỰ: Từ mắt nhân vật (Góc nhìn thứ 1) hướng tới mục tiêu
+        // ======== BƯỚC 2: Tia tương tác THỰC SỰ từ mắt nhân vật tới targetPoint ========
         Vector3 originPos = (raycastOrigin != null) ? raycastOrigin.position : transform.position + Vector3.up * 0.6f;
         Vector3 aimDirection = (targetPoint - originPos).normalized;
         Ray interactRay = new Ray(originPos, aimDirection);
 
-        // Vẽ tia đỏ liên tục để nhìn trong cửa sổ Scene
-        Debug.DrawRay(interactRay.origin, interactRay.direction * interactDistance, Color.yellow);
+        // Vẽ 2 tia debug nhìn trong cửa sổ Scene
+        Debug.DrawRay(camRay.origin, camRay.direction * camProbeDistance, Color.cyan); // Tia Camera (xanh dương)
+        Debug.DrawRay(interactRay.origin, interactRay.direction * maxInteractDistance, Color.yellow); // Tia tương tác (vàng)
 
-        // Debug 1: Check xem có tia nào bắn trúng BẤT CỨ thứ gì không (KHÔNG LỌC LAYER)
-        if (Physics.Raycast(interactRay, out RaycastHit anyHit, interactDistance))
+        if (verboseRaycastLogging)
         {
-            if (anyHit.collider.gameObject.layer != LayerMask.NameToLayer("Interactable"))
+            Debug.Log($"[Tia Chính] Gốc: {originPos}, Hướng: {aimDirection}, TầmXa: {maxInteractDistance}m");
+        }
+
+        // ======== BƯỚC 3: Debug - kiểm tra tia có chạm BẤT CỨ thứ gì không ========
+        if (Physics.Raycast(interactRay, out RaycastHit anyHit, maxInteractDistance))
+        {
+            if (verboseRaycastLogging)
             {
-                // Nếu trúng mà khác layer Interactable, in ra cảnh báo để biết tia đang bị thứ gì chặn lại
-                Debug.Log($"[Debug Tia] Tia Raycast đang bị chặn bởi: {anyHit.collider.gameObject.name} (Thuộc Layer: {LayerMask.LayerToName(anyHit.collider.gameObject.layer)}). Mất tín hiệu tới đồ vật phía sau!");
+                Debug.Log($"[Debug Tia] Trúng '{anyHit.collider.gameObject.name}' (Layer: {LayerMask.LayerToName(anyHit.collider.gameObject.layer)}, Dist: {anyHit.distance:F1}m)");
             }
         }
-        else
+        else if (verboseRaycastLogging)
         {
-            Debug.Log("[Debug Tia] Tia Raycast đang bắn vào vùng không gian rỗng, không trúng bất kỳ thứ gì trong phạm vi 10 mét.");
+            Debug.Log($"[Debug Tia] Tia từ mắt nhân vật KHÔNG trúng bất kỳ thứ gì trong {maxInteractDistance}m!");
         }
 
-        // Kịch bản Cốt lõi: Lọc tia chỉ trúng Layer
-        if (Physics.Raycast(interactRay, out RaycastHit hit, interactDistance, interactableLayer))
+        // ======== BƯỚC 4: Lọc theo Layer Interactable ========
+        if (Physics.Raycast(interactRay, out RaycastHit hit, maxInteractDistance, interactableLayer))
         {
-            Debug.Log($"[Highlight] Tia ĐÃ TRÚNG Layer thành công vào đối tượng: {hit.collider.gameObject.name}!");
-            
             IInteractable interactable = hit.collider.GetComponent<IInteractable>();
             
-            // Xử lý Highlight khi lia tâm chuột vào
             if (interactable != currentHoveredItem)
             {
                 if (currentHoveredItem != null) currentHoveredItem.RemoveHighlight();
@@ -84,24 +125,18 @@ public class PlayerInteraction : MonoBehaviour
                 
                 if (currentHoveredItem != null)
                 {
-                    Debug.Log($"[Highlight] Đã kích hoạt đổi màu xanh lá cho {hit.collider.gameObject.name}!");
                     currentHoveredItem.Highlight();
+                    if (verboseRaycastLogging) Debug.Log($"[Highlight] Đang ngắm trúng: {hit.collider.gameObject.name}");
                 }
                 else
                 {
-                    Debug.LogError($"[LỖI] Vật {hit.collider.gameObject.name} có Layer đúng nhưng BẠN QUÊN KHÔNG GẮN SCRIPT 'PickupItem' cho nó!");
+                    Debug.LogError($"[LỖI] Vật {hit.collider.gameObject.name} có Layer đúng nhưng thiếu IInteractable!");
                 }
             }
         }
         else
         {
-            // Mất Focus
-            if (currentHoveredItem != null)
-            {
-                Debug.Log("[Highlight] Đã lia góc nhìn ra chỗ khác, hủy màu xanh lá.");
-                currentHoveredItem.RemoveHighlight();
-                currentHoveredItem = null;
-            }
+            ClearHoveredItem();
         }
     }
 
@@ -109,7 +144,43 @@ public class PlayerInteraction : MonoBehaviour
     {
         if (currentHoveredItem != null)
         {
-            currentHoveredItem.Interact(this.gameObject);
+            if (verboseRaycastLogging) Debug.Log($"[Tương Tác] Đang gọi lệnh Interact() cho vật thể ngắm trúng!");
+            IInteractable interactable = currentHoveredItem;
+            ClearHoveredItem();
+            interactable.Interact(this.gameObject);
+        }
+        else
+        {
+            if (verboseRaycastLogging) Debug.Log("[Tương Tác] Thất bại: Bấm E nhưng crosshair không bắt được IInteractable nào (LayerMask Nothing?).");
+        }
+    }
+
+    private void ResolveReferences()
+    {
+        if (playercamera == null)
+        {
+            Camera childCamera = GetComponentInChildren<Camera>();
+            if (childCamera != null)
+            {
+                playercamera = childCamera.transform;
+            }
+            else if (Camera.main != null)
+            {
+                playercamera = Camera.main.transform;
+            }
+        }
+
+        if (raycastOrigin == null)
+        {
+            raycastOrigin = playercamera != null ? playercamera : transform;
+        }
+    }
+
+    private void ClearHoveredItem()
+    {
+        if (currentHoveredItem != null)
+        {
+            currentHoveredItem.RemoveHighlight();
             currentHoveredItem = null; // Reset sau khi nhặt
         }
     }
