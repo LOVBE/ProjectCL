@@ -1,8 +1,11 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Cauldron : MonoBehaviour
+public class Cauldron : MonoBehaviour, IInteractable
 {
+    private const float AmbientTemperature = 20f;
+
     [Header("Tuning Lò Đun")]
     public float currentTemperature = 20f;
     public float maxSafeTemperature = 150f;
@@ -13,11 +16,35 @@ public class Cauldron : MonoBehaviour
     public bool isFireOn = false;
     private List<ItemID> currentIngredients = new List<ItemID>();
 
+    [Header("Visual")]
+    [SerializeField] private Renderer cauldronRenderer;
+    [SerializeField] private Color highlightColor = new Color(0.45f, 0.9f, 0.55f, 1f);
+
+    private Color originalColor;
+    private bool isHighlighted;
+
+    public float CurrentTemperature => currentTemperature;
+    public float MaxSafeTemperature => maxSafeTemperature;
+    public bool IsFireOn => isFireOn;
+    public IReadOnlyList<ItemID> CurrentIngredients => currentIngredients;
+
+    public Action OnCauldronStateChanged;
+    public Action<ItemID> OnPotionCreated;
+
+    private void Awake()
+    {
+        CacheRenderer();
+    }
+
     private void Update()
     {
         if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameManager.GameState.Crafting)
         {
-            isFireOn = false;
+            if (isFireOn)
+            {
+                isFireOn = false;
+                NotifyStateChanged();
+            }
             return;
         }
 
@@ -29,23 +56,34 @@ public class Cauldron : MonoBehaviour
     {
         isFireOn = !isFireOn;
         Debug.Log($"[Cauldron] Bếp lửa: {(isFireOn ? "BẬT" : "TẮT")}.");
+        NotifyStateChanged();
     }
 
     private void HandleTemperature()
     {
+        float previousTemperature = currentTemperature;
+
         if (isFireOn)
         {
             currentTemperature += heatIncreaseRate * Time.deltaTime;
         }
-        else if (currentTemperature > 20f)
+        else if (currentTemperature > AmbientTemperature)
         {
             currentTemperature -= coolingRate * Time.deltaTime;
         }
+
+        currentTemperature = Mathf.Max(AmbientTemperature, currentTemperature);
 
         // Logic Nổ lò
         if (currentTemperature > maxSafeTemperature)
         {
             ExplodeCauldron();
+            return;
+        }
+
+        if (!Mathf.Approximately(previousTemperature, currentTemperature))
+        {
+            NotifyStateChanged();
         }
 
         // Đổi màu nước (Visual Feedbacks - Mockup)
@@ -59,9 +97,11 @@ public class Cauldron : MonoBehaviour
         // Hiệu ứng vật lý (Ví dụ thả lá Bạc Hà giảm nhiệt độ)
         if (item == ItemID.IceMint)
         {
-            currentTemperature = Mathf.Max(20f, currentTemperature - 30f);
+            currentTemperature = Mathf.Max(AmbientTemperature, currentTemperature - 30f);
             Debug.Log("[Cauldron] Thả IceMint, nhiệt độ giảm mạnh!");
         }
+
+        NotifyStateChanged();
     }
 
     private void CheckRecipesContinuously()
@@ -98,7 +138,9 @@ public class Cauldron : MonoBehaviour
         // Clear vạc
         currentIngredients.Clear();
         isFireOn = false;
-        currentTemperature = 20f;
+        currentTemperature = AmbientTemperature;
+        OnPotionCreated?.Invoke(potionID);
+        NotifyStateChanged();
     }
 
     private void ExplodeCauldron()
@@ -107,9 +149,57 @@ public class Cauldron : MonoBehaviour
         
         currentIngredients.Clear();
         isFireOn = false;
-        currentTemperature = 20f;
+        currentTemperature = AmbientTemperature;
+        NotifyStateChanged();
 
         // Trừ thể lực hoặc phạt ép end day
         GameManager.Instance?.OnPlayerFainted("Tai nạn phòng thí nghiệm (Vạc nổ)");
+    }
+
+    public void Interact(GameObject interactor)
+    {
+        GameManager.Instance?.ChangeState(GameManager.GameState.Crafting);
+    }
+
+    public void Highlight()
+    {
+        CacheRenderer();
+        if (isHighlighted || cauldronRenderer == null)
+        {
+            return;
+        }
+
+        isHighlighted = true;
+        cauldronRenderer.material.color = highlightColor;
+    }
+
+    public void RemoveHighlight()
+    {
+        CacheRenderer();
+        if (!isHighlighted || cauldronRenderer == null)
+        {
+            return;
+        }
+
+        isHighlighted = false;
+        cauldronRenderer.material.color = originalColor;
+    }
+
+    private void CacheRenderer()
+    {
+        if (cauldronRenderer == null)
+        {
+            cauldronRenderer = GetComponent<Renderer>();
+        }
+
+        if (cauldronRenderer != null && !isHighlighted)
+        {
+            originalColor = cauldronRenderer.material.color;
+        }
+    }
+
+    private void NotifyStateChanged()
+    {
+        OnCauldronStateChanged?.Invoke();
     }
 }

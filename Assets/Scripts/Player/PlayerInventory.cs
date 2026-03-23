@@ -21,6 +21,9 @@ public class PlayerInventory : MonoBehaviour
     // Dùng Dictionary để quản lý số lượng
     public Dictionary<ItemID, int> inventory = new Dictionary<ItemID, int>();
     public Action<ItemID, int> OnInventoryChanged;
+    public Action OnInventoryContentsChanged;
+
+    public IReadOnlyDictionary<ItemID, int> Items => inventory;
 
     private void Awake()
     {
@@ -37,11 +40,17 @@ public class PlayerInventory : MonoBehaviour
             
         Debug.Log($"[Inventory] Đã nhặt: {id} x{amount}. Tổng: {inventory[id]}");
         OnInventoryChanged?.Invoke(id, inventory[id]);
+        OnInventoryContentsChanged?.Invoke();
     }
 
     public bool HasItem(ItemID id, int amount = 1)
     {
         return inventory.ContainsKey(id) && inventory[id] >= amount;
+    }
+
+    public int GetItemCount(ItemID id)
+    {
+        return inventory.TryGetValue(id, out int count) ? count : 0;
     }
 
     public bool RemoveItem(ItemID id, int amount = 1)
@@ -54,6 +63,7 @@ public class PlayerInventory : MonoBehaviour
                 
             Debug.Log($"[Inventory] Đã dùng: {id} x{amount}.");
             OnInventoryChanged?.Invoke(id, inventory.ContainsKey(id) ? inventory[id] : 0);
+            OnInventoryContentsChanged?.Invoke();
             return true;
         }
         return false;
@@ -66,5 +76,6 @@ public class PlayerInventory : MonoBehaviour
         inventory.Clear();
         Debug.Log("[Inventory] Mất toàn bộ đồ do ngất xỉu.");
         OnInventoryChanged?.Invoke(ItemID.GlowingMushroom, 0); // Demo trigger update UI
+        OnInventoryContentsChanged?.Invoke();
     }
 }
